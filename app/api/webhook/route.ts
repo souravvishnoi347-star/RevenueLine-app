@@ -88,8 +88,7 @@ RETURN STRICT JSON ONLY WITHOUT ANY MARKDOWN:
         type: "interactive",
         interactive: {
           type: "button",
-          header: { type: "image", image: { link: "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80" } },
-          body: { text: `${aiResult.reply}\n\nHere is a beautiful premium property we recommend for you. Would you like to schedule a visit?` },
+          body: { text: (aiResult.reply + "\n\nWould you like to schedule a visit?").substring(0, 1000) },
           action: {
             buttons: [
               { type: "reply", reply: { id: "btn_book", title: "Book Visit" } },
