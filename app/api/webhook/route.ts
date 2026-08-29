@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { NextResponse } from 'next/server';
 
 const META_TOKEN = process.env.META_TOKEN;
@@ -26,7 +27,6 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    // Check if this is a WhatsApp status update
     if (!body.entry?.[0]?.changes?.[0]?.value?.messages) {
       return NextResponse.json({ status: 'ignored' }, { status: 200 });
     }
@@ -42,14 +42,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ status: 'no_text' }, { status: 200 });
     }
 
-    // 1. Call Gemini AI via direct HTTP fetch
     const prompt = `You are a friendly real estate agent. User "${name}" messaged: '${message}'.
-
 1. Reply politely and helpful.
 2. Qualify them (is_qualified=true if they want to buy/invest).
 3. Set show_property=true IF they mention locations (e.g. Delhi, Mumbai) OR ask for properties.
 
-RETURN STRICT JSON ONLY:
+RETURN STRICT JSON ONLY WITHOUT ANY MARKDOWN:
 {"reply":"...", "is_qualified":true/false, "show_property":true/false}`;
 
     const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`, {
@@ -62,22 +60,20 @@ RETURN STRICT JSON ONLY:
     });
 
     const geminiData = await geminiRes.json();
-    const aiResult = JSON.parse(geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
+    let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    const aiResult = JSON.parse(rawText);
 
-    // 2. Send Telegram Alert (if qualified)
     if (aiResult.is_qualified && process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
       const telegramText = `🔥 HOT LEAD!\nName: ${name}\nPhone: ${phone}\nMessage: ${message}`;
       await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: process.env.TELEGRAM_CHAT_ID,
-          text: telegramText
-        })
+        body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: telegramText })
       });
     }
 
-    // 3. Send WhatsApp Reply
     let waPayload: any = {
       messaging_product: "whatsapp",
       to: phone,
@@ -92,13 +88,8 @@ RETURN STRICT JSON ONLY:
         type: "interactive",
         interactive: {
           type: "button",
-          header: {
-            type: "image",
-            image: { link: "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80" }
-          },
-          body: {
-            text: `${aiResult.reply}\n\nHere is a beautiful premium property we recommend for you. Would you like to schedule a visit?`
-          },
+          header: { type: "image", image: { link: "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80" } },
+          body: { text: `${aiResult.reply}\n\nHere is a beautiful premium property we recommend for you. Would you like to schedule a visit?` },
           action: {
             buttons: [
               { type: "reply", reply: { id: "btn_book", title: "Book Visit" } },
@@ -111,10 +102,7 @@ RETURN STRICT JSON ONLY:
 
     await fetch(`https://graph.facebook.com/v17.0/${PHONE_NUMBER_ID}/messages`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${META_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Authorization': `Bearer ${META_TOKEN}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(waPayload)
     });
 
