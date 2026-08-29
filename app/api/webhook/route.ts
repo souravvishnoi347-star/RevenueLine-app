@@ -7,106 +7,52 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const mode = searchParams.get('hub.mode');
-  const token = searchParams.get('hub.verify_token');
-  const challenge = searchParams.get('hub.challenge');
-
-  const VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || 'revenueline';
-
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-    return new NextResponse(challenge, {
-      status: 200,
-      headers: { 'Content-Type': 'text/plain' },
-    });
+  if (searchParams.get('hub.mode') === 'subscribe' && searchParams.get('hub.verify_token') === (process.env.META_VERIFY_TOKEN || 'revenueline')) {
+    return new NextResponse(searchParams.get('hub.challenge'), { status: 200, headers: { 'Content-Type': 'text/plain' } });
   }
-
   return NextResponse.json({ error: 'Invalid token' }, { status: 403 });
 }
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-
-    if (!body.entry?.[0]?.changes?.[0]?.value?.messages) {
-      return NextResponse.json({ status: 'ignored' }, { status: 200 });
-    }
+    if (!body.entry?.[0]?.changes?.[0]?.value?.messages) return NextResponse.json({ status: 'ignored' }, { status: 200 });
 
     const messageObj = body.entry[0].changes[0].value.messages[0];
-    const contactObj = body.entry[0].changes[0].value.contacts[0];
-    
     const phone = messageObj.from;
-    const name = contactObj.profile.name;
+    const name = body.entry[0].changes[0].value.contacts[0].profile.name;
     const message = messageObj.text?.body || '';
+    if (!message) return NextResponse.json({ status: 'no_text' }, { status: 200 });
 
-    if (!message) {
-      return NextResponse.json({ status: 'no_text' }, { status: 200 });
-    }
-
-    const prompt = `You are a friendly real estate agent. User "${name}" messaged: '${message}'.
-1. Reply politely and helpful.
-2. Qualify them (is_qualified=true if they want to buy/invest).
-3. Set show_property=true IF they mention locations (e.g. Delhi, Mumbai) OR ask for properties.
-
-RETURN STRICT JSON ONLY WITHOUT ANY MARKDOWN:
-{"reply":"...", "is_qualified":true/false, "show_property":true/false}`;
-
+    // 1. Get AI Reply (Simple Text - No JSON Parsing to avoid crashes)
+    const prompt = `You are a friendly real estate agent. User "${name}" messaged: '${message}'. Reply politely and helpfully. Keep it conversational.`;
+    
     const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { response_mime_type: 'application/json' }
-      })
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
 
     const geminiData = await geminiRes.json();
-    let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-    
-    const aiResult = JSON.parse(rawText);
+    const replyText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "Thanks for reaching out! How can I help you today?";
 
-    if (aiResult.is_qualified && process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
-      const telegramText = `🔥 HOT LEAD!\nName: ${name}\nPhone: ${phone}\nMessage: ${message}`;
+    // 2. Send Telegram Alert
+    if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
       await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: telegramText })
+        body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: `🔥 NEW MESSAGE!\nName: ${name}\nPhone: ${phone}\nMessage: ${message}` })
       });
     }
 
-    let waPayload: any = {
-      messaging_product: "whatsapp",
-      to: phone,
-      type: "text",
-      text: { body: aiResult.reply || "Thanks for reaching out! How can I help you?" }
-    };
-
-    if (aiResult.show_property) {
-      waPayload = {
-        messaging_product: "whatsapp",
-        to: phone,
-        type: "interactive",
-        interactive: {
-          type: "button",
-          body: { text: (aiResult.reply + "\n\nWould you like to schedule a visit?").substring(0, 1000) },
-          action: {
-            buttons: [
-              { type: "reply", reply: { id: "btn_book", title: "Book Visit" } },
-              { type: "reply", reply: { id: "btn_agent", title: "Talk to Agent" } }
-            ]
-          }
-        }
-      };
-    }
-
-    await fetch(`https://graph.facebook.com/v17.0/${PHONE_NUMBER_ID}/messages`, {
+    // 3. Send WhatsApp Reply
+    await fetch(`https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${META_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(waPayload)
+      body: JSON.stringify({ messaging_product: "whatsapp", to: phone, type: "text", text: { body: replyText } })
     });
 
     return NextResponse.json({ status: 'success' }, { status: 200 });
-
   } catch (error) {
     console.error('Webhook Error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
