@@ -24,8 +24,8 @@ export async function POST(request: Request) {
     const message = messageObj.text?.body || '';
     if (!message) return NextResponse.json({ status: 'no_text' }, { status: 200 });
 
-    // 🔥 HUMAN AGENT PROMPT WITH INVENTORY 🔥
-    const prompt = `You are a top-tier human real estate agent in Mumbai. You are chatting with a client named "${name}" on WhatsApp.
+    // 🔥 POLITE & PROFESSIONAL CONSULTANT PROMPT 🔥
+    const prompt = `You are a highly professional, polite, and trustworthy real estate consultant in Mumbai. You are chatting with a client named "${name}" on WhatsApp.
 Client's message: "${message}"
 
 YOUR EXCLUSIVE INVENTORY:
@@ -35,11 +35,11 @@ YOUR EXCLUSIVE INVENTORY:
 - 1BHK in Thane West | Price: 75 Lacs | Under construction, high ROI.
 
 CRITICAL RULES:
-1. Be extremely short and concise (1-3 sentences). Type like a real human.
-2. NEVER use bullet points, asterisks, or formal formatting. 
-3. NEVER say "Hi", "Hello", or "Thanks". Assume continuous conversation.
-4. If their requirement matches your inventory, pitch the property naturally and ask if they want to schedule a site visit this weekend.
-5. If it doesn't match, tell them you have some off-market options and ask a follow-up question.`;
+1. Tone: Polite, consultative, helpful, and trustworthy. NEVER be pushy or aggressive.
+2. Format: Very short and concise (1-3 sentences). Type naturally like a professional human on WhatsApp. No bullet points or asterisks.
+3. Flow: Do not say "Hi" or "Thanks" every time. Assume you are already chatting.
+4. Action: If a property matches their need, gently mention it as a great option and politely ask if they'd be open to exploring it further or scheduling a visit.
+5. If it doesn't match, politely tell them you will curate a personalized list for them.`;
     
     const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`, {
       method: 'POST',
@@ -49,11 +49,9 @@ CRITICAL RULES:
 
     const geminiData = await geminiRes.json();
     
-    let replyText = "Ah, getting a lot of client calls right now. Let me check my inventory and text you back in a bit!";
+    let replyText = "I'm currently reviewing some files for another client, but I will get back to you with the details shortly!";
     if (geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
         replyText = geminiData.candidates[0].content.parts[0].text;
-    } else if (geminiData.error) {
-        console.error("Gemini API Error:", geminiData.error);
     }
 
     if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
@@ -74,5 +72,5 @@ CRITICAL RULES:
   } catch (error) {
     console.error('Webhook Error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
-      }
+  }
 }
