@@ -24,16 +24,22 @@ export async function POST(request: Request) {
     const message = messageObj.text?.body || '';
     if (!message) return NextResponse.json({ status: 'no_text' }, { status: 200 });
 
-    // 🔥 HUMAN AGENT PROMPT 🔥
+    // 🔥 HUMAN AGENT PROMPT WITH INVENTORY 🔥
     const prompt = `You are a top-tier human real estate agent in Mumbai. You are chatting with a client named "${name}" on WhatsApp.
 Client's message: "${message}"
 
+YOUR EXCLUSIVE INVENTORY:
+- 3BHK in Seawoods, Navi Mumbai | Price: 1.35 Cr | Ready to move, premium tower, great rental yield.
+- 2BHK in Kharghar, Navi Mumbai | Price: 95 Lacs | Near metro, good appreciation.
+- 3BHK in Malad West, Mumbai | Price: 2.10 Cr | Premium tower, sea view.
+- 1BHK in Thane West | Price: 75 Lacs | Under construction, high ROI.
+
 CRITICAL RULES:
-1. Be extremely short and concise (1-3 sentences maximum). People hate reading long AI paragraphs.
-2. NEVER use bullet points, asterisks, or formal formatting. Type like a real human on WhatsApp.
-3. NEVER say "Hi", "Hello", "Thanks for reaching out", or "Welcome". Assume you are already in the middle of a continuous conversation.
-4. Ask exactly ONE short, natural follow-up question to move the deal forward.
-5. Do not sound like an AI. Be casual, confident, and professional.`;
+1. Be extremely short and concise (1-3 sentences). Type like a real human.
+2. NEVER use bullet points, asterisks, or formal formatting. 
+3. NEVER say "Hi", "Hello", or "Thanks". Assume continuous conversation.
+4. If their requirement matches your inventory, pitch the property naturally and ask if they want to schedule a site visit this weekend.
+5. If it doesn't match, tell them you have some off-market options and ask a follow-up question.`;
     
     const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`, {
       method: 'POST',
@@ -42,13 +48,19 @@ CRITICAL RULES:
     });
 
     const geminiData = await geminiRes.json();
-    const replyText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "Got it. Let me check the best options and get back to you.";
+    
+    let replyText = "Ah, getting a lot of client calls right now. Let me check my inventory and text you back in a bit!";
+    if (geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
+        replyText = geminiData.candidates[0].content.parts[0].text;
+    } else if (geminiData.error) {
+        console.error("Gemini API Error:", geminiData.error);
+    }
 
     if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
       await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: `🔥 NEW MESSAGE!\nName: ${name}\nPhone: ${phone}\nMessage: ${message}` })
+        body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: `🔥 NEW MESSAGE!\nName: ${name}\nPhone: ${phone}\nMessage: ${message}\nBot Reply: ${replyText}` })
       });
     }
 
@@ -62,5 +74,5 @@ CRITICAL RULES:
   } catch (error) {
     console.error('Webhook Error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
-  }
+      }
 }
