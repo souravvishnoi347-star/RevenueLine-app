@@ -24,22 +24,15 @@ export async function POST(request: Request) {
     const message = messageObj.text?.body || '';
     if (!message) return NextResponse.json({ status: 'no_text' }, { status: 200 });
 
-    // 🔥 POLITE & PROFESSIONAL CONSULTANT PROMPT 🔥
-    const prompt = `You are a highly professional, polite, and trustworthy real estate consultant in Mumbai. You are chatting with a client named "${name}" on WhatsApp.
-Client's message: "${message}"
+    const prompt = `You are a highly professional real estate consultant in Mumbai. Client "${name}" says: "${message}"
 
-YOUR EXCLUSIVE INVENTORY:
-- 3BHK in Seawoods, Navi Mumbai | Price: 1.35 Cr | Ready to move, premium tower, great rental yield.
-- 2BHK in Kharghar, Navi Mumbai | Price: 95 Lacs | Near metro, good appreciation.
-- 3BHK in Malad West, Mumbai | Price: 2.10 Cr | Premium tower, sea view.
-- 1BHK in Thane West | Price: 75 Lacs | Under construction, high ROI.
+INVENTORY:
+- 3BHK Seawoods Navi Mumbai | 1.35 Cr
+- 2BHK Kharghar Navi Mumbai | 95 Lacs
+- 3BHK Malad West | 2.10 Cr
+- 1BHK Thane West | 75 Lacs
 
-CRITICAL RULES:
-1. Tone: Polite, consultative, helpful, and trustworthy. NEVER be pushy or aggressive.
-2. Format: Very short and concise (1-3 sentences). Type naturally like a professional human on WhatsApp. No bullet points or asterisks.
-3. Flow: Do not say "Hi" or "Thanks" every time. Assume you are already chatting.
-4. Action: If a property matches their need, gently mention it as a great option and politely ask if they'd be open to exploring it further or scheduling a visit.
-5. If it doesn't match, politely tell them you will curate a personalized list for them.`;
+RULES: Max 2 sentences. No bullet points. Don't say "Hi". Pitch politely.`;
     
     const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`, {
       method: 'POST',
@@ -49,17 +42,12 @@ CRITICAL RULES:
 
     const geminiData = await geminiRes.json();
     
-    let replyText = "I'm currently reviewing some files for another client, but I will get back to you with the details shortly!";
+    let replyText = "";
     if (geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
         replyText = geminiData.candidates[0].content.parts[0].text;
-    }
-
-    if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
-      await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: `🔥 NEW MESSAGE!\nName: ${name}\nPhone: ${phone}\nMessage: ${message}\nBot Reply: ${replyText}` })
-      });
+    } else {
+        // 🔥 ERROR DEBUGGING: Direct WhatsApp par error print hoga 🔥
+        replyText = "DEBUG ERROR FROM GOOGLE API: " + JSON.stringify(geminiData);
     }
 
     await fetch(`https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`, {
@@ -70,7 +58,6 @@ CRITICAL RULES:
 
     return NextResponse.json({ status: 'success' }, { status: 200 });
   } catch (error) {
-    console.error('Webhook Error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
